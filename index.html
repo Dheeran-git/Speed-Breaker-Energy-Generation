@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Speed Breaker Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            background: linear-gradient(to bottom, #1e3c72, #2a5298);
+        }
+
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #fff;
+            font-family: 'Poppins', sans-serif;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 15px;
+            border-radius: 10px;
+            max-height: 95vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        #ui h2 {
+            margin: 0 0 10px;
+            font-size: 1.5rem;
+            text-align: center;
+            color: #00e1ff;
+        }
+
+        #ui p {
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+            color: #00ff88;
+            text-shadow: 0 0 8px #00ff88;
+        }
+
+        #ui button {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            font-size: 1rem;
+            font-weight: bold;
+            color: white;
+            background: linear-gradient(135deg, #6a11cb, #2575fc);
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        #ui button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 15px rgba(101, 45, 230, 0.5);
+        }
+
+        #ui input[type="range"] {
+            width: 100%;
+        }
+
+        .vehicle-speed-control {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            box-shadow: 0 3px 6px rgba(0, 0, 0, 0.2);
+            color: white;
+        }
+
+        #energyDisplay {
+            font-size: 1.4rem;
+            font-weight: bold;
+            color: #00ff00;
+            text-shadow: 0 0 8px #00ff00;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="ui">
+        <h2>Enhanced Speed Breaker Simulation</h2>
+        <p>Energy Generated: <span id="energyDisplay">0</span> J</p>
+        <button id="startStopButton">Start</button>
+        <button id="resetButton">Reset</button>
+        <button id="addVehicleButton">Add Vehicle</button>
+        <button id="removeVehicleButton">Remove Vehicle</button>
+        <div id="vehicleControls"></div>
+    </div>
+    <div id="graphContainer"
+        style="position: absolute; bottom: 10px; left: 10px; width: 90%; height: 200px; background: rgba(0, 0, 0, 0.85); border-radius: 10px; padding: 10px;">
+        <canvas id="energyGraph"></canvas>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Basic Three.js Setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const indicatorLights = []; // Array to store all indicator lights
+
+        function createIndicatorLights() {
+            // Create 2 lights, one on each side of the speed breaker
+            const positions = [-2, 2]; // X positions for the lights
+            positions.forEach((pos) => {
+                const light = new THREE.PointLight(0xff0000, 1, 5); // Red light
+                light.position.set(pos, 1, 0); // Adjust height (Y) and depth (Z)
+                scene.add(light);
+
+                // Add a small sphere to represent the light source visually
+                const sphereGeometry = new THREE.SphereGeometry(0.1, 16, 16);
+                const sphereMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+                const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+                sphere.position.copy(light.position);
+                scene.add(sphere);
+
+                // Store light and its visual representation
+                indicatorLights.push({ light, sphere });
+            });
+        }
+        function createStepperMotor() {
+            // Stepper Motor Base
+            const baseGeometry = new THREE.CylinderGeometry(0.5, 0.5, 0.2, 32);
+            const baseMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+            const motorBase = new THREE.Mesh(baseGeometry, baseMaterial);
+            motorBase.rotation.x = Math.PI / 2;
+            motorBase.position.set(0, 0.5, 2); // Position near the speed breaker
+            scene.add(motorBase);
+
+            // Stepper Motor Shaft
+            const shaftGeometry = new THREE.CylinderGeometry(0.1, 0.1, 1, 32);
+            const shaftMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+            const motorShaft = new THREE.Mesh(shaftGeometry, shaftMaterial);
+            motorShaft.rotation.x = Math.PI / 2;
+            motorShaft.position.set(0, 1, 2);
+            motorShaft.castShadow = true;
+            scene.add(motorShaft);
+
+            // Return the motor shaft for rotation updates
+            return motorShaft;
+        }
+
+        function createGear(radius, teethCount, position, color) {
+            const gearGeometry = new THREE.CylinderGeometry(radius, radius, 0.1, teethCount);
+            const gearMaterial = new THREE.MeshStandardMaterial({ color });
+            const gear = new THREE.Mesh(gearGeometry, gearMaterial);
+
+            gear.rotation.x = Math.PI / 2; // Align with the ground
+            gear.position.copy(position);
+            gear.castShadow = true;
+
+            scene.add(gear);
+            return gear;
+        }
+
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        // Setup Chart.js Graph (Spline Chart with Smooth Animation)
+        const ctx = document.getElementById('energyGraph').getContext('2d');
+
+        // Initialize the chart
+        const energyChart = new Chart(ctx, {
+            type: 'line', // Line chart
+            data: {
+                labels: [], // Time labels (e.g., seconds)
+                datasets: [
+                    {
+                        label: 'Energy Generated (J)',
+                        data: [], // Energy values
+                        borderColor: 'rgba(0, 255, 136, 1)', // Vibrant green line
+                        backgroundColor: 'rgba(0, 255, 136, 0.1)', // Light green fill
+                        fill: true, // Fills the area under the curve
+                        tension: 0.4, // Smooth spline curve
+                        borderWidth: 3,
+                    },
+                    {
+                        label: 'Power (W)',
+                        data: [], // Power values
+                        borderColor: 'rgba(0, 225, 255, 1)', // Vibrant blue line
+                        backgroundColor: 'rgba(0, 225, 255, 0.1)', // Light blue fill
+                        fill: true, // Fills the area under the curve
+                        tension: 0.4, // Smooth spline curve
+                        borderWidth: 3,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#fff', // White text
+                        },
+                    },
+                },
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Time (s)',
+                            color: '#fff', // White axis title
+                        },
+                        ticks: { color: '#fff' }, // White text for ticks
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' }, // Faint grid lines
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Values (Energy J / Power W)',
+                            color: '#fff', // White axis title
+                        },
+                        ticks: { color: '#fff' }, // White text for ticks
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' }, // Faint grid lines
+                    },
+                },
+                animation: {
+                    duration: 1000, // Smooth animation over 1 second
+                },
+            },
+        });
+
+
+
+
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambientLight);
+
+        const pointLight = new THREE.PointLight(0xffffff, 1);
+        pointLight.position.set(5, 10, 5);
+        pointLight.castShadow = true;
+        scene.add(pointLight);
+
+        // Load Textures
+        const loader = new THREE.TextureLoader();
+        const groundTexture = loader.load('https://threejsfundamentals.org/threejs/resources/images/checker.png');
+        groundTexture.wrapS = groundTexture.wrapT = THREE.RepeatWrapping;
+        groundTexture.repeat.set(10, 10);
+
+        const concreteTexture = loader.load('https://threejsfundamentals.org/threejs/resources/images/bricks-color.jpg');
+
+        // Ground Plane
+        const planeGeometry = new THREE.PlaneGeometry(20, 20);
+        const planeMaterial = new THREE.MeshStandardMaterial({ map: groundTexture });
+        const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+        plane.rotation.x = -Math.PI / 2;
+        plane.receiveShadow = true;
+        scene.add(plane);
+
+
+
+        // Curved Speed Breaker
+        const breakerGeometry = new THREE.CylinderGeometry(0.3, 0.3, 8, 120, 10, true, 0, Math.PI);
+        const breakerMaterial = new THREE.MeshStandardMaterial({ map: concreteTexture, side: THREE.DoubleSide });
+        const speedBreaker = new THREE.Mesh(breakerGeometry, breakerMaterial);
+        speedBreaker.rotation.x = Math.PI / 2;
+        speedBreaker.position.set(0, 0.1, 0);
+        speedBreaker.castShadow = true;
+        scene.add(speedBreaker);
+        createIndicatorLights();
+        const motorShaft = createStepperMotor(); // Add motor to the scene
+        const largeGear = createGear(1, 20, new THREE.Vector3(-1.5, 0.6, 2), 0xff0000); // Large red gear
+        const smallGear = createGear(0.5, 20, new THREE.Vector3(-0.5, 0.6, 2), 0x00ff00); // Small green gear
+
+
+
+        // Camera Setup
+        camera.position.set(0, 5, 10);
+        camera.lookAt(0, 0, 0);
+
+        // Vehicle Array and Speeds
+        const vehicles = [];
+        const vehicleSpeeds = [];
+        const vehicleControls = document.getElementById('vehicleControls');
+
+        // Raycaster for detecting collisions
+        const raycaster = new THREE.Raycaster();
+        const downVector = new THREE.Vector3(0, -1, 0); // Cast ray downward
+
+        function addVehicle() {
+            // Vehicle body
+            const bodyGeometry = new THREE.BoxGeometry(1, 0.5, 0.5);
+            const bodyMaterial = new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.castShadow = true;
+
+            // Vehicle cabin
+            const cabinGeometry = new THREE.BoxGeometry(0.7, 0.28, 0.5);
+            const cabinMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+            const cabin = new THREE.Mesh(cabinGeometry, cabinMaterial);
+            cabin.position.set(-0.18, 0.38, 0);
+            cabin.castShadow = true;
+
+            // Create wheels
+            const wheelGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.2, 32);
+            const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+            const wheel1 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+            wheel1.position.set(-0.4, -0.04, 0.25);
+            wheel1.rotation.x = Math.PI / 2;
+            wheel1.castShadow = true;
+
+            const wheel2 = wheel1.clone();
+            wheel2.position.set(0.4, -0.04, 0.25);
+
+            const wheel3 = wheel1.clone();
+            wheel3.position.set(-0.4, -0.1, -0.25);
+
+            const wheel4 = wheel1.clone();
+            wheel4.position.set(0.4, -0.1, -0.25);
+
+            // Group body, cabin, and wheels
+            const vehicle = new THREE.Group();
+            vehicle.add(body);
+            vehicle.add(cabin);
+            vehicle.add(wheel1, wheel2, wheel3, wheel4);
+            vehicle.position.set(-5 + Math.random() * 10, 0.25, Math.random() * 4 - 2);
+            vehicles.push(vehicle);
+
+            // Assign random mass
+            const mass = Math.random() * 500 + 500; // Between 500kg and 1000kg
+            vehicle.userData.mass = mass;
+
+            // Assign random speed
+            const speed = 0.03 + Math.random() * 0.07;
+            vehicleSpeeds.push(speed);
+
+            // Add vehicle to scene
+            scene.add(vehicle);
+
+            // Add Speed and Mass Control UI
+            const controlDiv = document.createElement('div');
+            controlDiv.className = 'vehicle-speed-control';
+            controlDiv.innerHTML = `
+        <label>Vehicle ${vehicles.length} Mass: <span>${mass.toFixed(2)} kg</span></label>
+        <label>Vehicle ${vehicles.length} Speed: <span>${speed.toFixed(2)}</span></label>
+        <input type="range" min="0.01" max="0.2" step="0.01" value="${speed.toFixed(2)}">
+    `;
+            const rangeInput = controlDiv.querySelector('input');
+            const speedDisplay = controlDiv.querySelectorAll('span')[1];
+            rangeInput.addEventListener('input', () => {
+                const newSpeed = parseFloat(rangeInput.value);
+                vehicleSpeeds[vehicles.length - 1] = newSpeed;
+                speedDisplay.textContent = newSpeed.toFixed(2);
+            });
+            vehicleControls.appendChild(controlDiv);
+        }
+
+        function updateVehicleHeight(vehicle) {
+            // Set the raycaster to the vehicle's position
+            raycaster.set(vehicle.position, downVector);
+
+            // Get intersections with the speed breaker
+            const intersects = raycaster.intersectObject(speedBreaker);
+
+            if (intersects.length > 0) {
+                console.log("Intersection detected:", intersects[0].point); // Debugging
+
+                // Adjust the vehicle height to match the intersection point
+                const intersectionPoint = intersects[0].point.y;
+                vehicle.position.y = intersectionPoint + 0.25; // Offset for wheels
+
+                // Compress the speed breaker
+                speedBreaker.scale.z = Math.max(
+                    compressionFactor,
+                    speedBreaker.scale.z - expansionSpeed
+                );
+
+                // Rotate the gears
+                largeGear.rotation.z += 0.05; // Slow rotation for large gear
+                smallGear.rotation.z -= 0.1; // Faster rotation for small gear (opposite direction)
+
+                // Rotate the motor shaft
+                motorShaft.rotation.z += 0.1; // Increment rotation
+
+                // Generate energy
+                const mass = vehicle.userData.mass;
+                const speed = vehicleSpeeds[vehicles.indexOf(vehicle)];
+                energyGenerated += 0.1 * speed * mass;
+                energyDisplay.textContent = energyGenerated.toFixed(2);
+
+                // Turn ON indicator lights
+                indicatorLights.forEach(({ light, sphere }) => {
+                    light.visible = true;
+                    sphere.material.color.set(0x00ff00); // Green for "active"
+                });
+            } else {
+                // Restore vehicle height and speed breaker scale
+                vehicle.position.y = 0.25;
+                speedBreaker.scale.z = Math.min(
+                    1,
+                    speedBreaker.scale.z + expansionSpeed
+                );
+
+                // Turn OFF indicator lights
+                indicatorLights.forEach(({ light, sphere }) => {
+                    light.visible = false;
+                    sphere.material.color.set(0xff0000); // Red for "inactive"
+                });
+            }
+        }
+
+        function removeVehicle() {
+            if (vehicles.length > 0) {
+                const vehicle = vehicles.pop();
+                scene.remove(vehicle);
+                vehicleSpeeds.pop();
+                vehicleControls.removeChild(vehicleControls.lastChild);
+            }
+        }
+
+        // Initial Vehicles
+        for (let i = 0; i < 5; i++) addVehicle();
+
+        // UI Logic
+        let energyGenerated = 0;
+        const energyDisplay = document.getElementById('energyDisplay');
+        let simulationRunning = false;
+
+        document.getElementById('startStopButton').addEventListener('click', () => {
+            simulationRunning = !simulationRunning;
+        });
+
+        document.getElementById('resetButton').addEventListener('click', () => {
+            energyGenerated = 0;
+            energyDisplay.textContent = '0';
+        });
+
+        document.getElementById('addVehicleButton').addEventListener('click', addVehicle);
+        document.getElementById('removeVehicleButton').addEventListener('click', removeVehicle);
+
+        // Speed Breaker Compression Logic
+        let compressionFactor = 0.05; // Minimum scale of the speed breaker in Z-axis
+        let expansionSpeed = 0.05;   // Speed of compression and expansion
+        let speedBreakerRadius = 0.4; // Radius of the curved part of the speed breaker
+
+        // Animation Loop
+        let currentTime = 0; // Timer for graph updates
+        let lastEnergy = 0; // Tracks previous energy value for power calculation
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (simulationRunning) {
+                for (let i = 0; i < vehicles.length; i++) {
+                    // Move vehicle along the x-axis
+                    vehicles[i].position.x += vehicleSpeeds[i];
+                    if (vehicles[i].position.x > 5) vehicles[i].position.x = -5;
+
+                    // Update vehicle height and gear motion
+                    updateVehicleHeight(vehicles[i]);
+
+                    // Simulate wheel rotation
+                    vehicles[i].children[2].rotation.x += vehicleSpeeds[i]; // wheel1
+                    vehicles[i].children[3].rotation.x += vehicleSpeeds[i]; // wheel2
+                    vehicles[i].children[4].rotation.x += vehicleSpeeds[i]; // wheel3
+                    vehicles[i].children[5].rotation.x += vehicleSpeeds[i]; // wheel4
+                }
+
+                // Gradually slow down the gears and motor shaft
+                largeGear.rotation.z *= 0.98;
+                smallGear.rotation.z *= 0.98;
+                motorShaft.rotation.z *= 0.98;
+
+                // Update graph data every second
+                currentTime += 1 / 60; // Assuming 60 FPS
+                if (currentTime >= 1) {
+                    // Calculate power generated
+                    const powerGenerated = (energyGenerated - lastEnergy) / currentTime; // Power = ΔEnergy / ΔTime
+                    lastEnergy = energyGenerated;
+                    currentTime = 0;
+
+                    // Update chart datasets
+                    energyChart.data.labels.push(`${Math.floor(performance.now() / 1000)}s`); // Time labels
+                    energyChart.data.datasets[0].data.push(energyGenerated.toFixed(2)); // Energy dataset
+                    energyChart.data.datasets[1].data.push(powerGenerated.toFixed(2)); // Power dataset
+
+                    // Limit data points for performance
+                    if (energyChart.data.labels.length > 20) {
+                        energyChart.data.labels.shift();
+                        energyChart.data.datasets[0].data.shift();
+                        energyChart.data.datasets[1].data.shift();
+                    }
+
+                    energyChart.update(); // Refresh the chart
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+</body>
+
+</html>
+
+
+
+
+
+
+
+
+
