@@ -27,7 +27,7 @@ This project is contained in a **single HTML file** (`index.html`), which includ
 - **Chart.js** for real-time graph updates  
 
 ## 🔹 **Author:**  
-👨‍💻 **S Dheeran** – *Second-Year Engineering Student at R V College of Engineering*  
+👨‍💻 **S Dheeran** – *First-Year Engineering Student at R V College of Engineering*  
 🔗 **My LinkedIn Profile:** [www.linkedin.com/in/s-dheeran-38bb29334](https://www.linkedin.com/in/s-dheeran-38bb29334)  
 
 
